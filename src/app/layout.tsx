@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { getUser } from "@/lib/supabase/dal";
+import { logout } from "@/app/actions/auth";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,11 +19,13 @@ export const metadata: Metadata = {
   description: "Track your daily healthy habits across 18 dimensions and build unbroken streaks for 21 days.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const user = await getUser();
+
   return (
     <html
       lang="en"
@@ -38,8 +42,25 @@ export default function RootLayout({
                 Healthy Habit Accountability
               </span>
             </div>
-            <div className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
-              21-Day Challenge Active
+            <div className="flex items-center gap-3">
+              <div className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                21-Day Challenge Active
+              </div>
+              {user && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600 dark:text-gray-400 hidden sm:inline">
+                    {user.email}
+                  </span>
+                  <form action={logout}>
+                    <button
+                      type="submit"
+                      className="text-xs font-medium px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+                    >
+                      Log out
+                    </button>
+                  </form>
+                </div>
+              )}
             </div>
           </div>
         </header>
