@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   CheckCircle2,
   Circle,
@@ -18,44 +18,9 @@ import {
   Check
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-
-interface HabitItem {
-  id: string;
-  category: 'Morning' | 'Breakfast & Midday' | 'Afternoon' | 'Evening' | 'Night';
-  text: string;
-}
-
-const HABITS: HabitItem[] = [
-  // Morning
-  { id: 'morning_wake', category: 'Morning', text: 'Wake up at consistent time' },
-  { id: 'morning_hydrate', category: 'Morning', text: 'Hydrate (1–2 glasses of water)' },
-  { id: 'morning_stretch', category: 'Morning', text: 'Stretching / movement (5–10 min)' },
-  { id: 'morning_meditate', category: 'Morning', text: 'Mindful breathing / meditation' },
-
-  // Breakfast & Midday
-  { id: 'midday_breakfast', category: 'Breakfast & Midday', text: 'High-protein, high-fiber meal (Breakfast)' },
-  { id: 'midday_breaks', category: 'Breakfast & Midday', text: 'Standing/walking breaks each hour' },
-  { id: 'midday_sunlight', category: 'Breakfast & Midday', text: 'Morning sunlight exposure (5–10 min)' },
-
-  // Afternoon
-  { id: 'afternoon_lunch', category: 'Afternoon', text: 'Balanced lunch' },
-  { id: 'afternoon_walk', category: 'Afternoon', text: 'Post-meal walk (10 min)' },
-  { id: 'afternoon_hydrate', category: 'Afternoon', text: 'Hydration (water / herbal tea)' },
-  { id: 'afternoon_reset', category: 'Afternoon', text: 'Mid-afternoon reset (stretch/breathe/steps)' },
-  { id: 'afternoon_snack', category: 'Afternoon', text: 'Healthy snack' },
-
-  // Evening
-  { id: 'evening_activity', category: 'Evening', text: '30–45 min physical activity' },
-  { id: 'evening_dinner', category: 'Evening', text: 'Light, balanced dinner' },
-  { id: 'evening_screens', category: 'Evening', text: 'Limit screen time before bed' },
-
-  // Night
-  { id: 'night_journal', category: 'Night', text: 'Mindfulness / gratitude journal' },
-  { id: 'night_stretch', category: 'Night', text: 'Gentle stretching / relaxation' },
-  { id: 'night_sleep', category: 'Night', text: 'Sleep 7–8 hrs (fixed bedtime)' },
-];
-
-const CATEGORIES = ['Morning', 'Breakfast & Midday', 'Afternoon', 'Evening', 'Night'] as const;
+import { HABITS, CATEGORIES, type DayData, type ChallengeState } from '@/lib/habits';
+import { computeCurrentStreak } from '@/lib/streak';
+import CoachInsightCard from '@/components/CoachInsightCard';
 
 const CATEGORY_ICONS = {
   'Morning': Sunrise,
@@ -65,28 +30,62 @@ const CATEGORY_ICONS = {
   'Night': Moon,
 };
 
-interface DayData {
-  habits: Record<string, boolean>;
-  completed: boolean;
-}
-
-interface ChallengeState {
-  startDate: string; // ISO date string
-  days: Record<number, DayData>; // Day 1 to 21
-  currentDayIndex: number; // 1 to 21
+interface CoachInsight {
+  insight: string;
+  createdAt: string;
 }
 
 interface HabitTrackerProps {
   userId: string;
   initialChallenge: ChallengeState;
+  initialInsights: Record<number, CoachInsight>;
 }
 
-export default function HabitTracker({ userId, initialChallenge }: HabitTrackerProps) {
+export default function HabitTracker({ userId, initialChallenge, initialInsights }: HabitTrackerProps) {
   const [challenge, setChallenge] = useState<ChallengeState>(initialChallenge);
 
   const [activeTabDay, setActiveTabDay] = useState<number>(1);
   const [showResetModal, setShowResetModal] = useState(false);
   const [celebration, setCelebration] = useState<string | null>(null);
+
+  const [insights, setInsights] = useState<Record<number, CoachInsight>>(initialInsights);
+  const [loadingDay, setLoadingDay] = useState<number | null>(null);
+  const [coachError, setCoachError] = useState<string | null>(null);
+
+  const generateInsight = async (dayIndex: number) => {
+    setLoadingDay(dayIndex);
+    setCoachError(null);
+    try {
+      const res = await fetch('/api/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dayIndex }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCoachError(data.error ?? 'coach_unavailable');
+        return;
+      }
+      setInsights(prev => ({ ...prev, [dayIndex]: { insight: data.insight, createdAt: new Date().toISOString() } }));
+    } catch {
+      setCoachError('coach_unavailable');
+    } finally {
+      setLoadingDay(null);
+    }
+  };
+
+  const prevCompletedRef = useRef<Record<number, boolean>>({});
+  useEffect(() => {
+    const wasCompleted = prevCompletedRef.current[activeTabDay];
+    const isCompleted = !!challenge.days[activeTabDay]?.completed;
+    prevCompletedRef.current[activeTabDay] = isCompleted;
+
+    if (isCompleted && !wasCompleted && !insights[activeTabDay] && loadingDay === null) {
+      generateInsight(activeTabDay);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [challenge.days, activeTabDay]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -112,15 +111,7 @@ export default function HabitTracker({ userId, initialChallenge }: HabitTrackerP
   const totalDays = 21;
   const completedDaysCount = Object.values(challenge.days).filter(d => d.completed).length;
 
-  // Calculate current streak: consecutive completed days from Day 1 upwards
-  let currentStreak = 0;
-  for (let i = 1; i <= totalDays; i++) {
-    if (challenge.days[i]?.completed) {
-      currentStreak++;
-    } else {
-      break;
-    }
-  }
+  const currentStreak = computeCurrentStreak(challenge.days, totalDays);
 
   const completionPercentage = Math.round((completedDaysCount / totalDays) * 100);
 
@@ -194,6 +185,16 @@ export default function HabitTracker({ userId, initialChallenge }: HabitTrackerP
     setShowResetModal(false);
     setCelebration('Challenge reset. Day 1 starts now! 💪');
     setTimeout(() => setCelebration(null), 4000);
+
+    setInsights({});
+    const supabase = createClient();
+    supabase
+      .from('coach_insights')
+      .delete()
+      .eq('user_id', userId)
+      .then(({ error }) => {
+        if (error) console.error('Failed to clear coach insights:', error);
+      });
   };
 
   const currentDayData = challenge.days[activeTabDay] || { habits: {}, completed: false };
@@ -349,6 +350,15 @@ export default function HabitTracker({ userId, initialChallenge }: HabitTrackerP
             )}
           </button>
         </div>
+
+        {/* AI Streak Coach */}
+        <CoachInsightCard
+          dayIndex={activeTabDay}
+          insight={insights[activeTabDay]}
+          loading={loadingDay === activeTabDay}
+          error={loadingDay === null ? coachError : null}
+          onGenerate={() => generateInsight(activeTabDay)}
+        />
 
         {/* Progress Bar */}
         <div className="w-full bg-gray-100 dark:bg-gray-800 h-2">

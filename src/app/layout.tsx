@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { getUser } from "@/lib/supabase/dal";
 import { logout } from "@/app/actions/auth";
@@ -70,6 +71,7 @@ export default async function RootLayout({
         <footer className="border-t border-gray-200 dark:border-gray-800 py-6 text-center text-xs text-gray-500">
           21-Day Healthy Habit Accountability App &bull; Built for lasting behavior change
         </footer>
+        <Analytics />
       </body>
     </html>
   );
